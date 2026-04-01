@@ -67,3 +67,41 @@ Tasks can be marked `recurrence="daily"` or `recurrence="weekly"`. When `pet.com
 ```bash
 python main.py
 ```
+
+---
+
+## Testing PawPal+
+
+### Run the test suite
+
+```bash
+python -m pytest
+```
+
+Or with verbose output to see each test name:
+
+```bash
+python -m pytest tests/test_pawpal.py -v
+```
+
+### What the tests cover
+
+The suite lives in `tests/test_pawpal.py` and contains **34 tests** across 5 groups:
+
+| Group | Tests | What is verified |
+|---|---|---|
+| `TestGeneratePlan` | 9 | Tasks scheduled by priority; plan never exceeds time budget; completed tasks excluded; start times auto-assigned sequentially; edge cases: empty pet, zero budget, exact-fit budget |
+| `TestSortByTime` | 4 | Tasks returned in chronological HH:MM order; tasks without a start time sort last; empty list and single-item list handled safely |
+| `TestFilterTasks` | 6 | Filter by completion status, by category, and by both combined (AND logic); no-match returns empty list; no-args returns all tasks unchanged |
+| `TestDetectConflicts` | 6 | Overlapping windows flagged; touching edges (end == start) not a conflict; same start time is a conflict; single task returns no pairs; tasks without start_time are ignored |
+| `TestRecurringTasks` | 9 | Daily task next occurrence = today + 1 day; weekly = today + 7 days; rescheduled task is incomplete with no start_time; one-time task returns None; `pet.complete_task()` auto-appends next occurrence; `due_date=None` defaults to today |
+
+### Confidence level
+
+⭐⭐⭐⭐ **4 / 5**
+
+The core scheduling logic — priority ordering, time budget enforcement, conflict detection, and recurring task rescheduling — is well covered by happy-path and edge-case tests. One star is held back because:
+
+- The greedy scheduler is not tested against an optimal solution (no knapsack comparison).
+- Integration between the Streamlit UI (`app.py`) and the backend has no automated tests; only manual verification.
+- Multi-pet scheduling (tasks competing across pets for one owner's time budget) has no dedicated tests yet.
