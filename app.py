@@ -5,25 +5,20 @@ st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
 # ---------------------------------------------------------------------------
 # Session-state initialisation
-#
-# Streamlit reruns this script top-to-bottom on every interaction.
-# Each key is initialised exactly once; subsequent reruns skip the `if`.
 # ---------------------------------------------------------------------------
 if "owner" not in st.session_state:
-    st.session_state.owner = None          # Owner instance
-
+    st.session_state.owner = None
 if "pets" not in st.session_state:
-    st.session_state.pets = []             # list[Pet] — all pets for this owner
-
+    st.session_state.pets = []
 if "task_display" not in st.session_state:
-    st.session_state.task_display = {}     # dict[pet_name -> list[dict]] for st.table
+    st.session_state.task_display = {}
 
 
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
 st.title("🐾 PawPal+")
-st.caption("A daily pet care planner that fits tasks into your available time.")
+st.caption("A smart daily pet care planner — priority scheduling, conflict detection, and recurring tasks.")
 st.divider()
 
 
@@ -44,14 +39,11 @@ with col_b:
     age      = st.number_input("Age (years)", min_value=0, max_value=30, value=3)
 
 if st.button("Save Profile"):
-    # ── UI action: "save profile"
-    # ── Backend: Owner.__init__()  +  Pet.__init__()  +  owner.add_pet()
     owner = Owner(owner_name, available_minutes=int(available_mins))
     pet   = Pet(pet_name, species=species, breed=breed, age=int(age))
-    owner.add_pet(pet)                     # <-- Owner.add_pet() registers the pet
-
+    owner.add_pet(pet)
     st.session_state.owner        = owner
-    st.session_state.pets         = [pet]  # UI now knows about this pet
+    st.session_state.pets         = [pet]
     st.session_state.task_display = {pet_name: []}
     st.success(f"Profile saved — {owner_name} & {pet_name} are ready!")
 
@@ -69,7 +61,6 @@ st.divider()
 # Section 1b — Add another pet
 # ---------------------------------------------------------------------------
 st.subheader("1b. Add Another Pet")
-st.caption("owner.add_pet() registers each new pet under the same owner.")
 
 with st.form("add_pet_form"):
     col1, col2 = st.columns(2)
@@ -87,33 +78,29 @@ if submitted:
     elif any(p.name == new_pet_name for p in st.session_state.pets):
         st.warning(f"A pet named '{new_pet_name}' already exists.")
     else:
-        # ── UI action: "add another pet"
-        # ── Backend: Pet.__init__()  +  owner.add_pet()
         new_pet = Pet(new_pet_name, species=new_species, breed=new_breed, age=int(new_age))
-        st.session_state.owner.add_pet(new_pet)      # <-- owner.add_pet() is the bridge
-        st.session_state.pets.append(new_pet)        # UI mirror updated to show the change
+        st.session_state.owner.add_pet(new_pet)
+        st.session_state.pets.append(new_pet)
         st.session_state.task_display[new_pet_name] = []
-        st.success(f"{new_pet_name} added! Owner now has "
-                   f"{len(st.session_state.owner.get_pets())} pet(s).")
+        st.success(f"{new_pet_name} added! "
+                   f"Owner now has {len(st.session_state.owner.get_pets())} pet(s).")
 
 st.divider()
 
 
 # ---------------------------------------------------------------------------
-# Section 2 — Add care tasks (to a chosen pet)
+# Section 2 — Add care tasks
 # ---------------------------------------------------------------------------
 st.subheader("2. Add Care Tasks")
 
 if not st.session_state.pets:
     st.info("Save a profile to unlock task entry.")
 else:
-    pet_names    = [p.name for p in st.session_state.pets]
-    target_name  = st.selectbox("Add tasks for:", pet_names, key="task_target")
-    # Resolve the UI selection back to the actual Pet object
-    # ── UI selection → backend object lookup
-    target_pet   = next(p for p in st.session_state.pets if p.name == target_name)
+    pet_names   = [p.name for p in st.session_state.pets]
+    target_name = st.selectbox("Add tasks for:", pet_names, key="task_target")
+    target_pet  = next(p for p in st.session_state.pets if p.name == target_name)
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         task_name    = st.text_input("Task name", value="Morning walk")
     with col2:
@@ -122,29 +109,73 @@ else:
         duration     = st.number_input("Duration (min)", min_value=1, max_value=240, value=20)
     with col4:
         priority_str = st.selectbox("Priority", ["high", "medium", "low"])
+    with col5:
+        recurrence   = st.selectbox("Recurs?", ["", "daily", "weekly"],
+                                    format_func=lambda x: x if x else "one-time")
 
     if st.button("Add Task"):
-        # ── UI action: "add task"
-        # ── Backend: Task.__init__()  +  pet.add_task()
         task = Task(
             name=task_name,
             category=category,
             duration_minutes=int(duration),
             priority=PRIORITY_MAP[priority_str],
+            recurrence=recurrence,
         )
-        target_pet.add_task(task)                    # <-- Pet.add_task() does the real work
+        target_pet.add_task(task)
+        recur_label = f" ({recurrence})" if recurrence else ""
         st.session_state.task_display[target_name].append({
             "Task": task_name,
             "Category": category,
             "Duration (min)": int(duration),
             "Priority": priority_str,
+            "Recurs": recurrence if recurrence else "one-time",
         })
-        st.success(f"Added '{task_name}' to {target_name}.")
+        st.success(f"Added '{task_name}' to {target_name}{recur_label}.")
 
+    # ── Task view with filter controls ──────────────────────────────────────
     rows = st.session_state.task_display.get(target_name, [])
     if rows:
-        st.write(f"**{target_name}'s tasks ({len(rows)}):**")
-        st.table(rows)
+        with st.expander(f"View {target_name}'s tasks ({len(rows)})", expanded=True):
+            f_col1, f_col2 = st.columns(2)
+            with f_col1:
+                status_filter = st.selectbox(
+                    "Filter by status",
+                    ["all", "pending", "done"],
+                    key="status_filter",
+                )
+            with f_col2:
+                cat_filter = st.selectbox(
+                    "Filter by category",
+                    ["all"] + ["walk", "feed", "meds", "grooming", "enrichment"],
+                    key="cat_filter",
+                )
+
+            # Apply filters using Scheduler.filter_tasks()
+            temp_owner = st.session_state.owner
+            temp_sched = Scheduler(temp_owner, target_pet)
+            all_tasks  = target_pet.get_tasks()
+
+            filtered = temp_sched.filter_tasks(
+                all_tasks,
+                completed=(None if status_filter == "all" else status_filter == "done"),
+                category=(None if cat_filter == "all" else cat_filter),
+            )
+
+            if not filtered:
+                st.info("No tasks match the selected filters.")
+            else:
+                display_rows = []
+                for t in filtered:
+                    recur_icon = "🔁" if t.recurrence else ""
+                    display_rows.append({
+                        "Task": f"{recur_icon} {t.name}".strip(),
+                        "Category": t.category,
+                        "Duration (min)": t.duration_minutes,
+                        "Priority": {1: "🔴 High", 2: "🟡 Medium", 3: "🟢 Low"}.get(t.priority, ""),
+                        "Recurs": t.recurrence if t.recurrence else "one-time",
+                        "Status": "✅ Done" if t.is_completed else "⏳ Pending",
+                    })
+                st.dataframe(display_rows, use_container_width=True)
     else:
         st.info(f"No tasks for {target_name} yet.")
 
@@ -152,51 +183,86 @@ st.divider()
 
 
 # ---------------------------------------------------------------------------
-# Section 3 — Generate schedule (for a chosen pet)
+# Section 3 — Generate schedule
 # ---------------------------------------------------------------------------
 st.subheader("3. Generate Today's Schedule")
 
 if not st.session_state.pets:
     st.info("Save a profile to unlock the scheduler.")
 else:
-    pet_names    = [p.name for p in st.session_state.pets]
-    sched_name   = st.selectbox("Schedule for:", pet_names, key="sched_target")
-    # Resolve selection → Pet object (same pattern as Section 2)
-    sched_pet    = next(p for p in st.session_state.pets if p.name == sched_name)
+    pet_names  = [p.name for p in st.session_state.pets]
+    sched_name = st.selectbox("Schedule for:", pet_names, key="sched_target")
+    sched_pet  = next(p for p in st.session_state.pets if p.name == sched_name)
+
+    start_hour = st.slider("Day starts at (hour)", min_value=5, max_value=12, value=8,
+                           format="%d:00")
 
     if st.button("Generate Schedule"):
         tasks = sched_pet.get_tasks()
         if not tasks:
             st.warning(f"Add at least one task for {sched_name} first.")
         else:
-            # ── UI action: "generate schedule"
-            # ── Backend: Scheduler.__init__()  +  generate_plan()  +  explain_plan()
             scheduler = Scheduler(st.session_state.owner, sched_pet)
-            plan      = scheduler.generate_plan()
+            plan      = scheduler.generate_plan(start_hour=start_hour)
 
             if not plan:
                 st.error("No tasks could fit in your available time.")
             else:
-                st.success(f"Scheduled {len(plan)} task(s) for {sched_name}!")
+                # ── 1. Conflict detection — shown FIRST so owner sees it immediately ──
+                sorted_plan = scheduler.sort_by_time(plan)
+                conflicts   = scheduler.detect_conflicts(sorted_plan)
 
-                for i, task in enumerate(plan, 1):
-                    badge = {1: "🔴 High", 2: "🟡 Medium", 3: "🟢 Low"}.get(task.priority, "")
-                    st.markdown(
-                        f"**{i}. {task.name}** &nbsp;|&nbsp; "
-                        f"`{task.category}` &nbsp;|&nbsp; "
-                        f"{task.duration_minutes} min &nbsp;|&nbsp; {badge}"
+                if conflicts:
+                    st.warning(
+                        f"⚠️ **{len(conflicts)} scheduling conflict(s) detected** — "
+                        "the tasks below overlap in time. Consider adjusting durations or start times."
                     )
+                    for task_a, task_b in conflicts:
+                        st.error(
+                            f"🔴 **{task_a.name}** ({task_a.start_time}, {task_a.duration_minutes} min)  "
+                            f"overlaps with  **{task_b.name}** ({task_b.start_time}, {task_b.duration_minutes} min)"
+                        )
+                    st.divider()
 
+                # ── 2. Timed schedule table (sorted chronologically) ─────────────
+                st.success(f"Scheduled {len(plan)} task(s) for {sched_name} "
+                           f"starting at {start_hour:02d}:00")
+
+                table_rows = []
+                for task in sorted_plan:
+                    h, m   = divmod(task.duration_minutes, 60)
+                    dur_str = f"{h}h {m}m" if h else f"{m}m"
+                    recur_icon = " 🔁" if task.recurrence else ""
+                    table_rows.append({
+                        "Start": task.start_time,
+                        "Task": task.name + recur_icon,
+                        "Category": task.category,
+                        "Duration": dur_str,
+                        "Priority": {1: "🔴 High", 2: "🟡 Medium", 3: "🟢 Low"}.get(task.priority, ""),
+                    })
+                st.dataframe(table_rows, use_container_width=True)
+
+                # ── 3. Time summary ──────────────────────────────────────────────
                 total     = sum(t.duration_minutes for t in plan)
                 remaining = st.session_state.owner.available_minutes - total
-                st.markdown(
-                    f"\n**Time used:** {total} min / "
-                    f"{st.session_state.owner.available_minutes} min available "
-                    f"({remaining} min unused)"
-                )
+                pct_used  = int(total / st.session_state.owner.available_minutes * 100)
+                st.progress(pct_used / 100,
+                            text=f"{total} min used / {st.session_state.owner.available_minutes} min budget ({remaining} min free)")
 
+                # ── 4. Recurring task callout ────────────────────────────────────
+                recurring_in_plan = [t for t in plan if t.recurrence]
+                if recurring_in_plan:
+                    with st.expander(f"🔁 {len(recurring_in_plan)} recurring task(s) in today's plan"):
+                        for t in recurring_in_plan:
+                            st.markdown(f"- **{t.name}** repeats `{t.recurrence}` — "
+                                        f"completing it will auto-schedule the next occurrence.")
+
+                # ── 5. Skipped tasks ─────────────────────────────────────────────
                 skipped = scheduler.get_unscheduled(plan)
                 if skipped:
-                    with st.expander(f"⚠️ {len(skipped)} task(s) skipped — not enough time"):
-                        for task in skipped:
-                            st.markdown(f"- **{task.name}** ({task.duration_minutes} min)")
+                    with st.expander(f"⏭️ {len(skipped)} task(s) skipped — not enough time"):
+                        for t in skipped:
+                            badge = {1: "🔴 High", 2: "🟡 Medium", 3: "🟢 Low"}.get(t.priority, "")
+                            st.markdown(f"- **{t.name}** — {t.duration_minutes} min, {badge}")
+                else:
+                    st.success("All pending tasks fit within your time budget!")
