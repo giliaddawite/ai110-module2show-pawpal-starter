@@ -53,13 +53,26 @@ One AI suggestion that was *not* accepted: making `Scheduler` automatically re-f
 
 **a. Constraints and priorities**
 
-- What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
+The scheduler considers three constraints:
+
+1. **Total available time** (`owner.available_minutes`) — the hard outer limit. No plan can exceed it.
+2. **Task priority** (`task.priority`: 1 = high, 2 = medium, 3 = low) — the primary sort key. High-priority tasks (medication, feeding) are always scheduled before lower-priority ones.
+3. **Task duration** (`task.duration_minutes`) — used as a tiebreaker within the same priority level. Shorter tasks are scheduled first to fit more tasks into the available window.
+
+Time was treated as the most important constraint because it is the only hard limit — you physically cannot do more than 24 hours of care in a day. Priority was chosen second because pet health tasks (meds, feeding) have real consequences if skipped. Duration as a tiebreaker was a deliberate choice to maximise the number of completed tasks rather than just the total minutes used.
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+**Tradeoff: greedy scheduling by priority, not by value-per-minute (knapsack)**
+
+The scheduler uses a greedy algorithm: it sorts all tasks by `(priority, duration)` and adds them one by one until the time budget runs out. It never considers whether swapping a medium-duration medium-priority task for two short low-priority tasks might produce a "better" day overall.
+
+A true optimal solution would require a 0/1 knapsack algorithm — trying all combinations to maximise total value (e.g. sum of priority weights) within the time budget. That would be O(n × W) in time and space (where W is available_minutes), which is tractable but significantly more complex to implement and explain to a non-technical user.
+
+The greedy approach is reasonable here because:
+- Pet care priorities are explicit and meaningful — a high-priority medication should always beat a low-priority enrichment activity, regardless of duration arithmetic.
+- The owner's intent is already encoded in the priority field, so greedy selection closely matches what a person would do manually.
+- For typical household task counts (5–15 tasks), the greedy result is usually identical to the optimal result.
 
 ---
 
