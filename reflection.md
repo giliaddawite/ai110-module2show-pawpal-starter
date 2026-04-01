@@ -80,13 +80,26 @@ The greedy approach is reasonable here because:
 
 **a. How you used AI**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+AI was used across every phase of the project, but in a deliberately layered way:
+
+- **Design brainstorming (Phase 1):** Used AI to validate the class structure and identify missing relationships before writing a single line of implementation code. The most useful prompt pattern was anchoring questions to the actual file: *"Based on #file:pawpal_system.py, does the Scheduler have everything it needs to generate a plan?"* This produced specific, actionable feedback rather than generic advice.
+
+- **Scaffolding (Phase 2):** AI generated the class skeletons (attributes, method stubs, docstrings) from the UML description. The key was providing a precise spec rather than asking for generic Python classes.
+
+- **Algorithm implementation (Phase 3):** AI was asked focused, single-concept questions: *"How do I use a lambda key to sort HH:MM strings by time?"* and *"What is the interval overlap condition for conflict detection?"*. Broad questions like "write a scheduler" produced bloated, hard-to-own results; narrow questions produced composable pieces.
+
+- **Test generation (Phase 4):** AI drafted an initial test plan covering happy paths. The most valuable prompt was asking specifically for *edge cases*: *"What are the most important edge cases to test for a scheduler with recurring tasks and conflict detection?"* This surfaced the "touching tasks" boundary case (A ends at 09:30, B starts at 09:30 — not a conflict) which would not have been tested otherwise.
+
+- **Documentation:** AI was used to draft docstrings and README sections from the working code, then edited to match the actual behaviour rather than a generic description.
 
 **b. Judgment and verification**
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+The clearest moment of rejection was around the `Scheduler.tasks` attribute. AI suggested making `generate_plan()` re-fetch `pet.get_tasks()` on every call so the scheduler always works with the most up-to-date task list. This sounds correct in isolation, but I rejected it for two reasons:
+
+1. **Predictability:** If tasks are mutated between two calls to `generate_plan()` in the same session, the plan would silently change. A snapshot taken at construction time makes the plan stable for the duration of a session.
+2. **Testability:** A scheduler that pulls live data is harder to test in isolation — you have to mutate the pet to set up each test case. With a snapshot, you can pass any list of tasks directly.
+
+The AI suggestion was verified by writing a mental simulation: "If I call `generate_plan()` twice in the same button click, what should happen?" The answer was clear — the same result both times. The snapshot approach passes that test; the live-fetch approach does not.
 
 ---
 
@@ -94,13 +107,24 @@ The greedy approach is reasonable here because:
 
 **a. What you tested**
 
-- What behaviors did you test?
-- Why were these tests important?
+Five behaviour groups, 34 tests total:
+
+1. **`generate_plan`** — priority ordering, budget ceiling, completed-task exclusion, sequential start times, and four edge cases (empty pet, zero budget, exact-fit budget, pre-completed tasks).
+2. **`sort_by_time`** — chronological HH:MM sort, untimed-tasks-last sentinel, empty list, single item.
+3. **`filter_tasks`** — status filter, category filter, AND-combined filter, no-match empty return, no-args passthrough.
+4. **`detect_conflicts`** — overlapping windows, touching-not-overlapping (strict `<`), same start time, single task (no pairs), tasks without a start time skipped.
+5. **Recurring tasks** — daily +1 day, weekly +7 days, new occurrence starts incomplete with no start_time, one-time task returns `None`, `pet.complete_task()` grows and does not grow the task list correctly, `None` due_date defaults to today.
+
+These tests mattered because the most common failure mode for a scheduler is a silent off-by-one or boundary error — not a crash. Without explicit tests for "touching is not overlapping" and "zero budget returns empty", the system might appear to work in demos but fail on real inputs.
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
-- What edge cases would you test next if you had more time?
+⭐⭐⭐⭐ **4 / 5** — high confidence in the backend logic layer; moderate confidence in the full system.
+
+Edge cases I would test next with more time:
+- **Multi-pet budget competition:** what happens when two pets share one owner and the combined task load exceeds the budget? Currently each pet is scheduled independently.
+- **Midnight-crossing tasks:** a task starting at `"23:30"` for 60 minutes would overflow to `"24:30"` — the current `_minutes_to_time` helper would produce `"24:30"` which is not a valid time string.
+- **Knapsack vs. greedy comparison:** a parameterised test that verifies the greedy result is within an acceptable margin of the optimal result for a range of input sizes.
 
 ---
 
@@ -108,12 +132,20 @@ The greedy approach is reasonable here because:
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+The CLI-first workflow was the strongest decision of the project. By building and verifying all logic in `pawpal_system.py` + `main.py` before touching `app.py`, every Streamlit session-state bug was a wiring issue rather than a logic issue. The boundary between "what the backend does" and "what the UI shows" stayed clean throughout.
+
+The test suite structure — grouping tests into five classes by behaviour rather than by method — also made failures immediately readable. When a test named `test_touching_tasks_not_a_conflict` fails, you know exactly which behaviour broke and why.
 
 **b. What you would improve**
 
-- If you had another iteration, what would you improve or redesign?
+Two things:
+
+1. **`Task.start_time` mutability:** `assign_start_times()` mutates tasks in place, which means generating a plan twice at different start hours leaves the tasks with whichever times were assigned last. A cleaner design would return a separate `ScheduledTask` dataclass that wraps a `Task` with a computed start time, leaving the original `Task` immutable.
+
+2. **UI integration tests:** The Streamlit layer was verified manually. In a production system, `pytest` with `streamlit.testing` would catch regressions when the UI is changed — particularly around session-state initialisation order.
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+The most important thing learned: **AI is a powerful junior collaborator, not an architect.** AI can generate correct code for a well-specified piece of logic in seconds. But it cannot decide *which* logic to build, *why* one design is better than another for this specific scenario, or *when* a technically correct suggestion is the wrong tradeoff for the project. Every time a suggestion was accepted without evaluation — the live-fetch `generate_plan`, the auto-re-execute recurring scheduler — it created a subtle problem that only became visible later.
+
+The role of "lead architect" is not to write more code than AI; it is to make decisions that AI cannot make: what to build, what tradeoffs to accept, and what tests actually prove the system is trustworthy.
